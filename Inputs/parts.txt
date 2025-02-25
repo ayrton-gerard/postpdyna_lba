@@ -1,0 +1,15 @@
+heart 84100300
+right_lung 84100100
+left_lung 84100200
+left_3_rib 89004301
+right_3_rib 89504301
+left_4_rib 8922311
+right_4_rib 89504401
+left_7_rib 89004701
+right_7_rib 89504701
+left_8_rib 89004801
+right_8_rib 89504801
+left_9_rib 89004901
+right_9_rib 89504901
+left_sternum_cort 89003701
+right_sternum_cort 89503701

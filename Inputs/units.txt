@@ -1,0 +1,5 @@
+mass T
+sigma MPa
+force N
+time s
+distance mm
