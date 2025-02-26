@@ -7,30 +7,35 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
 
 class Part:
-    def __init__(self, simu, id=[], name="part"):
+    def __init__(self, simu, id=[], name="part",  elemID_set=[]):
         self.id = id
         self.simu = simu
         self.name = name
 
         self.load_nodes()
-        self.load_elements()
+        self.load_elements_ids()
         self.load_elements_stress()
         self.load_elements_strain()
 
+        if len(elemID_set)!=0:
+            # Custom functions for solid elem
+            mask_element_parts = np.isin(simu.d3plot.arrays[ArrayType.element_solid_ids], elemID_set)
+            self.stresses=simu.d3plot.arrays[ArrayType.element_solid_stress][: mask_element_parts, :, :]
+            self.strains=simu.d3plot.arrays[ArrayType.element_solid_strain][: mask_element_parts, :, :]
+
     def load_nodes(self):
-       
         mask_node_parts = self.simu.d3plot.get_part_filter(FilterType.NODE, self.id)
         self.nodes = self.simu.d3plot.arrays[ArrayType.node_coordinates][mask_node_parts]
        
-    def load_elements(self):
+    def load_elements_ids(self):
         mask_element_parts = self.simu.d3plot.get_part_filter(FilterType.SHELL, self.id)
         if any(mask_element_parts):
             self.elementsType="shell"
-            self.elements = self.simu.d3plot.arrays[ArrayType.element_shell_ids][mask_element_parts]
+            self.elements_ids = self.simu.d3plot.arrays[ArrayType.element_shell_ids][mask_element_parts]
         else:
             mask_element_parts = self.simu.d3plot.get_part_filter(FilterType.SOLID, self.id)
             self.elementsType="solid"
-            self.elements = self.simu.d3plot.arrays[ArrayType.element_solid_ids][mask_element_parts]
+            self.elements_ids = self.simu.d3plot.arrays[ArrayType.element_solid_ids][mask_element_parts]
 
     def load_elements_strain(self):     
         if self.elementsType=="shell":
@@ -53,13 +58,6 @@ class Part:
             arrayType=ArrayType.element_solid_stress
 
         self.elements_stress = self.simu.d3plot.arrays[arrayType][:, mask_element_parts, :, :]
-
-    def set_damage(self, damage=dict()):
-        # Format :: ["metric type", "threshold", "title", "units"]
-        self.damage=damage
-
-    def __str__(self):
-        return "Part " + str(self.id) + " / " + self.name + " / " + self.elementsType
 
     def read_stress_strain_with_layer(self, quantity, layer=0):
         return quantity[:, :, layer, :]
@@ -97,12 +95,10 @@ class Part:
         return first_principal_stresses
     
     def get_pressures(self, layer=0):
-        # In MPa
         elements_stress=self.read_stress_strain_with_layer(self.elements_stress, layer)
         return np.copy(-np.mean(elements_stress[:,:,0:3], axis=2))
 
     def get_principal_strains(self, layer=0):
-
         elements_strain=self.read_stress_strain_with_layer(self.elements_strain, layer)
         # stresses in self.stresses
         # Create a matrix of 3x3 for each timestep and each element
@@ -130,27 +126,6 @@ class Part:
         first_principal_strains = np.max(principal_strains, axis=2)
     
         return first_principal_strains
-
-    def plot_damage_evolution(self, quantity, quantityName=""):
-        
-        damage_values = quantity  # (timesteps, nb_elements)
-        elements_exceeding_threshold = damage_values >= self.damage["threshold"]
-        count_exceeding_elements = np.sum(elements_exceeding_threshold, axis=1)  # Somme sur les éléments (par timestep)
-
-        # Récupérer les timesteps
-        timesteps = self.simu.d3plot.arrays[ArrayType.global_timesteps]
-
-        count_exceeding_elements=100*count_exceeding_elements/len(quantity[0, :])
-
-        # Tracer l'évolution du nombre d'éléments
-        plt.figure(figsize=(10, 6))
-        plt.plot(timesteps, count_exceeding_elements, marker="o", color="red", label="Elements")
-        #plt.title(f"{quantityName}, threshold of {self.damage["title"]} ({self.damage_threshold})")
-        plt.xlabel("Time [s]")
-        plt.ylabel("Proportion of elements >= threshold [%]")
-        #plt.grid(True)
-        plt.legend()
-        plt.show()
 
     def get_effective_plastic_strain(self, layer=0):
       
@@ -200,135 +175,6 @@ class Part:
 
         return von_mises_strains
 
-    def plot_histogram_envelope(self, quantity, quantityName="", bins=30, timestep_indices=None):
-        # Utiliser tous les timesteps si aucun n'est spécifié
-        if timestep_indices is None:
-            timestep_indices = range(quantity.shape[0])
-
-        timesteps = self.simu.d3plot.arrays[ArrayType.global_timesteps]
-        
-        # Préparer l'histogramme initial pour obtenir les bins
-        all_data = quantity[timestep_indices, :].flatten()
-        hist_range = (np.min(all_data), np.max(all_data))
-        bin_edges = np.linspace(hist_range[0], hist_range[1], bins + 1)
-        
-        plt.figure(figsize=(12, 8))
-        
-        # Créer une palette de couleurs basée sur le nombre de timesteps
-        colors = cm.viridis(np.linspace(0, 1, len(timestep_indices)))
-        
-        for idx, timestep_idx in enumerate(timestep_indices):
-            # Préparer les données pour le timestep courant
-            timestep_quantity = quantity[timestep_idx, :].flatten()
-            
-            # Calculer l'histogramme
-            hist_values, _ = np.histogram(timestep_quantity, bins=bin_edges)
-            
-            # Normaliser les valeurs de l'histogramme en pourcentage
-            hist_values = hist_values / len(timestep_quantity) * 100
-            
-            # Calculer les positions des centres des bins
-            bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-            
-            # Tracer la courbe avec une couleur différente pour chaque timestep
-            plt.plot(bin_centers, hist_values, color=colors[idx], label=f"Time {timesteps[timestep_idx]:.3f} s", alpha=0.8)
-
-        plt.title(f"Envelope of {quantityName} histograms over time")
-        plt.xlabel(quantityName)
-        plt.ylabel("Proportion of elements [%]")
-        plt.colorbar(cm.ScalarMappable(cmap='viridis'), label='Time progression')  # Barre de couleur pour visualiser l'évolution
-        plt.grid(True)
-        plt.show()
-
-    def plot_histogram_sequential(self, quantity, quantityName="", bins=30, timestep_indices=None):
-        # Utiliser tous les timesteps si aucun n'est spécifié
-        if timestep_indices is None:
-            timestep_indices = range(quantity.shape[0])
-
-        timesteps = self.simu.d3plot.arrays[ArrayType.global_timesteps]
-
-        for timestep_idx in timestep_indices:
-            # Préparer les données pour le timestep courant
-            timestep_quantity = quantity[timestep_idx, :].flatten()
-
-            # Créer la figure pour ce timestep
-            plt.figure(figsize=(10, 6))
-            plt.hist(
-                timestep_quantity,
-                bins=bins,
-                color="blue",
-                alpha=0.7,
-                edgecolor="black",
-                weights=np.ones_like(timestep_quantity) / len(timestep_quantity) * 100  # Convertir en pourcentage
-            )
-            plt.title(f"{quantityName} (Time {timesteps[timestep_idx]:.3f} s)")
-            plt.xlabel("{quantityName}")
-            plt.ylabel("Proportion of elements [%]")
-            plt.grid(True)
-
-            # Afficher la figure et attendre que l'utilisateur ferme avant de passer à la suivante
-            plt.show()
-
-    def create_histogram_gif(self, quantity, quantityName="", filename="von_mises_histogram.gif", bins=30, timestep_indices=None, fps=2):
-        """
-        Crée un GIF animé montrant l'évolution des histogrammes de Von Mises strain au cours du temps,
-        avec possibilité de définir des bornes pour les axes.
-
-        Arguments :
-        - filename : Nom du fichier de sortie pour le GIF.
-        - bins : Nombre de bins dans l'histogramme.
-        - timestep_indices : Indices des timesteps à inclure (par défaut, tous les timesteps).
-        - interval : Intervalle de temps entre les frames en millisecondes.
-        - xlim : Tuple définissant les bornes de l'axe X (exemple : (0, 0.5)).
-        - ylim : Tuple définissant les bornes de l'axe Y (exemple : (0, 100)).
-        """
-        # Utiliser tous les timesteps si aucun n'est spécifié
-        if timestep_indices is None:
-            timestep_indices = range(quantity.shape[0])
-
-        timesteps = self.simu.d3plot.arrays[ArrayType.global_timesteps]
-        
-        # Créer la figure pour l'animation
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        def update_histogram(timestep_idx):
-            """
-            Met à jour l'histogramme pour le timestep donné.
-            """
-            ax.clear()  # Efface le contenu précédent
-            timestep_quantity = quantity[timestep_idx, :].flatten()
-            
-            # Créer l'histogramme normalisé
-            counts, bin_edges, _ = ax.hist(
-                timestep_quantity,
-                bins=bins,
-                color="blue",
-                alpha=0.7,
-                edgecolor="black",
-                weights=np.ones_like(timestep_quantity) / len(timestep_quantity) * 100  # Convertir en pourcentage
-            )
-            ax.set_title(f"{quantityName} (Time {timesteps[timestep_idx]:.3f} s)")
-            ax.set_xlabel(f"{quantityName}")
-            ax.set_ylabel("[%]")
-            ax.grid(True)
-
-            ax.set_xlim(np.min(quantity), np.max(quantity)+0.1*np.max(quantity))
-            ax.set_ylim(0, 100)
-
-        # Créer l'animation
-        ani = animation.FuncAnimation(
-            fig,
-            update_histogram,
-            frames=timestep_indices,
-            interval=500,
-            repeat=True
-        )
-
-        # Sauvegarder le GIF
-        ani.save(filename, writer="imagemagick", fps=2)
-        plt.close(fig)  # Fermer la figure après la sauvegarde
-        print(f"GIF sauvegardé sous le nom : {filename}")
-
     def plot_by_nodes(self):
         # Visualisation en 3D
         fig = plt.figure(figsize=(12, 8))
@@ -346,3 +192,66 @@ class Part:
         ax.legend()
 
         plt.show()
+
+    def set_metric(self, metric_code, metric_name, filter):
+        match metric_code:
+            case "vm_stress":
+                quantity = np.stack([
+                                    self.get_von_mises_stresses(0),
+                                    self.get_von_mises_stresses(1),
+                                    self.get_von_mises_stresses(2)
+                                ], axis=2) 
+                self.metric_unit=self.simu.units["sigma"]
+               
+            case "vm_strain":
+                quantity = np.stack([
+                                    self.get_von_mises_strains(0),
+                                    self.get_von_mises_strains(1),
+                                ], axis=2) 
+                self.metric_unit="[-]"
+                
+            case "pressure":
+                quantity = np.stack([
+                                    self.get_pressures(0),
+                                    self.get_pressures(1),
+                                    self.get_pressures(2)
+                                ], axis=2)
+                self.metric_unit=self.simu.units["sigma"]
+                
+            case "EPS":
+                quantity = np.stack([
+                                    self.get_effective_plastic_strain(0),
+                                    self.get_effective_plastic_strain(1),
+                                    self.get_effective_plastic_strain(2)
+                                ], axis=2) 
+                self.metric_unit="[-]"
+                
+            case "P1_stress":
+                quantity = np.stack([
+                                    self.get_first_principal_stresses(self.get_principal_stresses(0)),
+                                    self.get_first_principal_stresses(self.get_principal_stresses(1)),
+                                    self.get_first_principal_stresses(self.get_principal_stresses(2))
+                                ], axis=2) 
+                self.metric_unit=self.simu.units["sigma"]
+               
+            case "P1_strain":
+                quantity = np.stack([
+                                    self.get_first_principal_strains(self.get_principal_strains(0)),
+                                    self.get_first_principal_strains(self.get_principal_strains(1)),
+                                ], axis=2)
+                self.metric_unit="[-]" 
+                
+                
+
+        match filter:
+            case "mean":
+                self.metric_quantity=np.mean(quantity, axis=2)
+            case "max":
+                self.metric_quantity=np.max(quantity, axis=2)
+            case "min":
+                self.metric_quantity=np.min(quantity, axis=2)
+
+        self.metric_name=metric_name
+
+    def set_injury_criteria(self, injury_criteria):
+        self.injury_criteria=injury_criteria

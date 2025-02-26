@@ -9,33 +9,22 @@ import numpy as np
 from Part import *
 from Deflection import *
 
-# Python > 3.10 needed (swich statement)
-# Format time matrix
-# [timestep, info] info=coord, velocity, acceleration, ...
-# FIRST LINE / Path can be changed
-
-"""
-There are two ways to plot strain rates.
-Set STRFLG to 1 using *DATABASE_EXTENT_BINARY so that strains are written directly to the output databases. Write very high resolution output to D3THDT or ELOUT for a few elements of interest. Select these elements using *DATABAE_HISTORY_... . Set N3THDT=1 in *DATABASE_EXTENT_BINARY to minimize output. After you run the job, read d3thdt into LS-Prepost and plot a strain time history. Choose "Oper" in the time history window and select "differentiate" (you may have to toggle off and then back on "differentiate" to get it to activate), and then select "Apply".  This approach allows you to choose a thru-thickness location in shells (lower, middle, upper).
-Use Fcomp > SRate to produce a fringe plot of strain rate computed from nodal displacements. Next, plot a time history of strain rate using History > Scalar. This strain rate corresponds to the midsurface of the shell. Method 1 must be used to get strain rates at other through-thickness locations.
-Using either method, the accuracy of the strain rate is dependent upon the resolution of the output. The units of strain rate are strain per time unit used in the model."""
-
 class Simulation:
-
     def __init__(self, d3plotPath):
         # Infos extraction
         self.d3plot=D3plot(d3plotPath)
     
         # File loading
         self.units=self.read_units_file("Inputs/units.txt")
+        self.expand_units()
+
         self.parts=self.read_parts_file("Inputs/parts.txt")
         self.critical_nodes=self.read_critical_nodes_file("Inputs/critical_nodes.txt")
-        self.chest_bands=self.read_file_create_chest_band("Inputs/chest_bands.txt")
+        self.node_set=self.read_node_set_file("Inputs/node_set.txt")
 
-    def calculate_CoM(self, node_coord_set):
-        # time, elements, coords, calculate center of mass (CoM)
-        return np.mean(node_coord_set, axis=1)
-
+    def expand_units(self):
+        self.units["energy"]=self.units["force"]+'.'+self.units["distance"]
+    
     def read_units_file(self, file_path):
         data = {}
     
@@ -72,7 +61,7 @@ class Simulation:
         
         return data
     
-    def read_file_create_chest_band(self, file_path):
+    def read_node_set_file(self, file_path):
         nodes_dict = {}
         current_key = None
 
@@ -91,9 +80,6 @@ class Simulation:
 
         return nodes_dict
 
-sim = Simulation("Frontal_Kroell_v5/d3plot")
-#sim.chest_bands[0].view_chest_band(save=True, plane='xy', substract_CoM=True)
-
 # Calculate center of mass of # T8 Cortical
 #mask_element_parts = sim.d3plot.get_part_filter(FilterType.NODE, [89000801, 89500801])
 #print(np.shape(sim.d3plot.arrays[ArrayType.node_displacement][:, mask_element_parts]))
@@ -104,7 +90,7 @@ sim = Simulation("Frontal_Kroell_v5/d3plot")
 
 #print(sim.chest_bands['name'])
 
-deflection=Deflection(sim, "4th rib band")
+#deflection=Deflection(sim, "4th rib band")
 
 #deflection.add_nodes_by_part([sim.parts["left_3_rib"], sim.parts["right_3_rib"],
 #                              sim.parts["left_4_rib"], sim.parts["right_4_rib"],
@@ -125,6 +111,7 @@ deflection=Deflection(sim, "4th rib band")
 #left_lung=Part(sim, sim.parts["left_lung"], "Left lung")
 #right_lung=Part(sim, sim.parts["right_lung"], "Left lung")
 
+"""
 rib=Part(sim, sim.parts["left_4_rib"], "3th rib left")
 #deflection.get_deflection()
 rib.create_histogram_gif(rib.get_effective_plastic_strain(), "Von mises", filename="Results/AAAA.gif")
@@ -166,5 +153,5 @@ print("test", np.max(rib.get_von_mises_stresses(2)))
 # Rib cortical
 # Left 89004101 à 89005201 (de 100 en 100, 4101, 4201, 4601, 4901, 5001, 5101, 5201)
 # Right pareil mais avec début 8950 au lieu de 8900
-"""
+
 
